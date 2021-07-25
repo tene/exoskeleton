@@ -5,108 +5,100 @@ use druid::{
     kurbo::{Affine, BezPath, Circle, Point},
     piet::{FixedLinearGradient, GradientStop, InterpolationMode},
     widget::{
-        prelude::*, Button, Checkbox, FillStrat, Flex, Image, Label, List, Painter, ProgressBar,
-        RadioGroup, Scroll, Slider, Spinner, Stepper, Switch, TextBox,
+        prelude::*, Button, Checkbox, Controller, FillStrat, Flex, Image, Label, List, Painter,
+        ProgressBar, RadioGroup, Scroll, Slider, Spinner, Stepper, Switch, TextBox,
     },
     AppDelegate, AppLauncher, Code, Color, Data, ImageBuf, KeyEvent, Lens, Widget, WidgetExt,
     WidgetPod, WindowDesc,
 };
 
 #[derive(Clone, Data, Lens)]
-struct AppData {
+struct ExoState {
     input: String,
     items: im::Vector<String>,
 }
 
-impl AppData {
+impl ExoState {
     fn new() -> Self {
         let input = String::new();
         let items = im::Vector::new();
         Self { input, items }
     }
 }
-fn render_items() -> impl Widget<AppData> {
+fn render_items() -> impl Widget<ExoState> {
     Scroll::new(
         List::new(|| Label::new(|data: &String, _: &_| format!("{}", data)).expand_width())
-            .expand_height()
-            .lens(AppData::items),
+            .lens(ExoState::items),
     )
     .vertical()
+    .expand_height()
 }
-fn render_input() -> impl Widget<AppData> {
-    TextBox::new().lens(AppData::input).expand_width()
+fn render_input() -> impl Widget<ExoState> {
+    TextBox::new().lens(ExoState::input).expand_width()
 }
 
-fn ui_builder() -> impl Widget<AppData> {
+fn ui_builder() -> impl Widget<ExoState> {
     Flex::column()
         .must_fill_main_axis(true)
         .with_flex_child(render_items(), 1.0)
         .with_child(render_input())
+        .controller(ExoController)
 }
 
 #[derive(Default)]
-struct Delegate;
+struct ExoController;
 
-impl AppDelegate<AppData> for Delegate {
+impl<W: Widget<ExoState>> Controller<ExoState, W> for ExoController {
     fn event(
         &mut self,
-        ctx: &mut druid::DelegateCtx,
-        window_id: druid::WindowId,
-        event: Event,
-        data: &mut AppData,
+        child: &mut W,
+        ctx: &mut EventCtx,
+        event: &Event,
+        data: &mut ExoState,
         env: &Env,
-    ) -> Option<Event> {
-        match event {
-            Event::KeyDown(KeyEvent {
-                code: Code::Enter, ..
-            }) => {
-                data.items.push_back(data.input.split_off(0));
-                None
-            }
-            _ => Some(event),
+    ) {
+        if let Event::KeyDown(KeyEvent {
+            code: Code::Enter, ..
+        }) = event
+        {
+            data.items.push_back(data.input.split_off(0));
+        } else {
+            child.event(ctx, event, data, env)
         }
     }
 
-    fn command(
+    fn lifecycle(
         &mut self,
-        ctx: &mut druid::DelegateCtx,
-        target: druid::Target,
-        cmd: &druid::Command,
-        data: &mut AppData,
+        child: &mut W,
+        ctx: &mut LifeCycleCtx,
+        event: &LifeCycle,
+        data: &ExoState,
         env: &Env,
-    ) -> druid::Handled {
-        druid::Handled::No
+    ) {
+        child.lifecycle(ctx, event, data, env)
     }
 
-    fn window_added(
+    fn update(
         &mut self,
-        id: druid::WindowId,
-        data: &mut AppData,
+        child: &mut W,
+        ctx: &mut UpdateCtx,
+        old_data: &ExoState,
+        data: &ExoState,
         env: &Env,
-        ctx: &mut druid::DelegateCtx,
     ) {
-    }
-
-    fn window_removed(
-        &mut self,
-        id: druid::WindowId,
-        data: &mut AppData,
-        env: &Env,
-        ctx: &mut druid::DelegateCtx,
-    ) {
+        child.update(ctx, old_data, data, env)
     }
 }
-
 fn main() {
     let main_window = WindowDesc::new(ui_builder).title("Widget Gallery");
-    let data = AppData::new();
+    let data = ExoState::new();
     let launcher = AppLauncher::with_window(main_window);
     let event_sink = launcher.get_external_handle();
     thread::spawn(move || background_thread(event_sink));
 
     launcher
         .use_simple_logger()
-        .delegate(Delegate::default())
+        //.delegate(Delegate::default())
         .launch(data)
         .expect("launch failed");
     println!("Hello, world!");
