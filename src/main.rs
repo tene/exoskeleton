@@ -1,5 +1,11 @@
-use std::{thread, time};
+use std::{
+    fs::File,
+    io::{self, BufRead},
+    iter::FromIterator,
+    thread, time,
+};
 
+use dirs;
 use druid::{
     im,
     kurbo::{Affine, BezPath, Circle, Point},
@@ -8,30 +14,104 @@ use druid::{
         prelude::*, Button, Checkbox, Controller, FillStrat, Flex, Image, Label, List, Painter,
         ProgressBar, RadioGroup, Scroll, Slider, Spinner, Stepper, Switch, TextBox,
     },
-    AppDelegate, AppLauncher, Code, Color, Data, ImageBuf, KeyEvent, Lens, Widget, WidgetExt,
-    WidgetPod, WindowDesc,
+    AppDelegate, AppLauncher, Code, Color, Data, ImageBuf, KeyEvent, Lens, TextAlignment, Widget,
+    WidgetExt, WidgetPod, WindowDesc,
 };
+use lazy_static::lazy_static;
+use rand::{seq::SliceRandom, thread_rng, Rng};
+
+lazy_static! {
+    static ref sample_lines: Vec<String> = {
+        let mut file_name = dirs::home_dir().unwrap();
+        file_name.push(".bash_history");
+        io::BufReader::new(File::open(file_name.as_path()).unwrap())
+            .lines()
+            .filter_map(Result::ok)
+            .collect()
+    };
+}
+
+#[derive(Clone, Data, PartialEq, Eq)]
+pub enum ActionStatus {
+    Running,
+    Failed,
+    Success,
+}
+
+#[derive(Clone, Data, Lens)]
+pub struct Action {
+    pub command: String,
+    pub output: im::Vector<String>,
+    pub status: ActionStatus,
+}
+
+impl Action {
+    pub fn new(command: String) -> Self {
+        let output = im::Vector::new();
+        let status = ActionStatus::Running;
+        Self {
+            command,
+            output,
+            status,
+        }
+    }
+    pub fn make_widget() -> impl Widget<Action> {
+        Flex::column()
+            .with_child(
+                Label::raw()
+                    .with_text_alignment(TextAlignment::Start)
+                    .background(Color::grey(0.2))
+                    .expand_width()
+                    .lens(Action::command),
+            )
+            .with_child(
+                List::new(|| {
+                    Label::raw()
+                        .with_text_alignment(TextAlignment::Start)
+                        .background(Color::grey(0.1))
+                        .expand_width()
+                })
+                .lens(Action::output),
+            )
+            .border(Color::BLACK, 1.0)
+            .expand_width()
+    }
+    pub fn gen_fake() -> Self {
+        let rng = &mut thread_rng();
+        let command = sample_lines.choose(rng).unwrap().clone();
+        let count = rng.gen_range(1..10);
+        let output = im::Vector::from_iter(
+            sample_lines
+                .choose_multiple(rng, count)
+                .map(String::to_owned),
+        );
+        let status = ActionStatus::Success;
+        Self {
+            command,
+            output,
+            status,
+        }
+    }
+}
 
 #[derive(Clone, Data, Lens)]
 struct ExoState {
     input: String,
-    items: im::Vector<String>,
+    items: im::Vector<Action>,
 }
 
 impl ExoState {
     fn new() -> Self {
         let input = String::new();
-        let items = im::Vector::new();
+        //let items = im::Vector::new();
+        let items = im::Vector::from_iter((1..20).map(|_| Action::gen_fake()));
         Self { input, items }
     }
 }
 fn render_items() -> impl Widget<ExoState> {
-    Scroll::new(
-        List::new(|| Label::new(|data: &String, _: &_| format!("{}", data)).expand_width())
-            .lens(ExoState::items),
-    )
-    .vertical()
-    .expand_height()
+    Scroll::new(List::new(Action::make_widget).lens(ExoState::items))
+        .vertical()
+        .expand_height()
 }
 fn render_input() -> impl Widget<ExoState> {
     TextBox::new().lens(ExoState::input).expand_width()
@@ -61,7 +141,7 @@ impl<W: Widget<ExoState>> Controller<ExoState, W> for ExoController {
             code: Code::Enter, ..
         }) = event
         {
-            data.items.push_back(data.input.split_off(0));
+            data.items.push_back(Action::new(data.input.split_off(0)));
         } else {
             child.event(ctx, event, data, env)
         }
